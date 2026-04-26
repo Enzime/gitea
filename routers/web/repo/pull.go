@@ -1095,6 +1095,17 @@ func MergePullRequest(ctx *context.Context) {
 	deleteBranchAfterMerge := optional.FromPtr(form.DeleteBranchAfterMerge).Value()
 
 	if form.MergeWhenChecksSucceed {
+		// Validate merge style before scheduling automerge
+		prUnit, err := ctx.Repo.Repository.GetUnit(ctx, unit.TypePullRequests)
+		if err != nil {
+			ctx.ServerError("GetUnit", err)
+			return
+		}
+		if !prUnit.PullRequestsConfig().IsMergeStyleAllowed(repo_model.MergeStyle(form.Do)) {
+			ctx.JSONError(ctx.Tr("repo.pulls.invalid_merge_option"))
+			return
+		}
+
 		// delete all scheduled auto merges
 		_ = pull_model.DeleteScheduledAutoMerge(ctx, pr.ID)
 		// schedule auto merge

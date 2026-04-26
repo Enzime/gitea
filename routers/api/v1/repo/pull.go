@@ -1031,6 +1031,17 @@ func MergePullRequest(ctx *context.APIContext) {
 	}
 
 	if form.MergeWhenChecksSucceed {
+		// Validate merge style before scheduling automerge
+		prUnit, err := ctx.Repo.Repository.GetUnit(ctx, unit.TypePullRequests)
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if !prUnit.PullRequestsConfig().IsMergeStyleAllowed(repo_model.MergeStyle(form.Do)) {
+			ctx.APIError(http.StatusMethodNotAllowed, fmt.Errorf("%s is not allowed an allowed merge style for this repository", repo_model.MergeStyle(form.Do)))
+			return
+		}
+
 		scheduled, err := automerge.ScheduleAutoMerge(ctx, ctx.Doer, pr, repo_model.MergeStyle(form.Do), message, deleteBranchAfterMerge)
 		if err != nil {
 			if pull_model.IsErrAlreadyScheduledToAutoMerge(err) {
