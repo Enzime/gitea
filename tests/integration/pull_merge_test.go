@@ -22,6 +22,7 @@ import (
 	issues_model "code.gitea.io/gitea/models/issues"
 	pull_model "code.gitea.io/gitea/models/pull"
 	repo_model "code.gitea.io/gitea/models/repo"
+	"code.gitea.io/gitea/models/unit"
 	"code.gitea.io/gitea/models/unittest"
 	user_model "code.gitea.io/gitea/models/user"
 	"code.gitea.io/gitea/models/webhook"
@@ -1261,5 +1262,65 @@ Co-authored-by: user4 <user4@example.com>
 				assert.Equal(t, tc.expectedMessage, squashMergeCommitMessage)
 			})
 		}
+	})
+}
+
+func TestAutoMergeRejectsDisallowedMergeStyle(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, giteaURL *url.URL) {
+		session := loginUser(t, "user1")
+		forkedName := "repo1-automerge-style"
+		testRepoFork(t, session, "user2", "repo1", "user1", forkedName, "")
+		testEditFile(t, session, "user1", forkedName, "master", "README.md", "Hello, World (Edited for automerge test)\n")
+		testPullCreate(t, session, "user1", forkedName, false, "master", "master", "Automerge style validation test")
+
+		baseRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{OwnerName: "user2", Name: "repo1"})
+		forkedRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{OwnerName: "user1", Name: forkedName})
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{
+			BaseRepoID: baseRepo.ID,
+			BaseBranch: "master",
+			HeadRepoID: forkedRepo.ID,
+			HeadBranch: "master",
+		})
+
+		// Disable squash merge on the base repo
+		prUnit := unittest.AssertExistsAndLoadBean(t, &repo_model.RepoUnit{RepoID: baseRepo.ID, Type: unit.TypePullRequests})
+		prConfig := prUnit.PullRequestsConfig()
+		prConfig.AllowSquash = false
+		assert.NoError(t, repo_model.UpdateRepoUnitConfig(t.Context(), prUnit))
+
+		t.Run("API", func(t *testing.T) {
+			token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)
+
+			// Schedule automerge with disallowed squash style via API
+			req := NewRequestWithJSON(t, http.MethodPost,
+				fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/%d/merge", pr.Index),
+				&forms.MergePullRequestForm{
+					Do:                     string(repo_model.MergeStyleSquash),
+					MergeWhenChecksSucceed: true,
+				}).AddTokenAuth(token)
+
+			session.MakeRequest(t, req, http.StatusMethodNotAllowed)
+
+			// Verify no automerge was scheduled
+			unittest.AssertNotExistsBean(t, &pull_model.AutoMerge{PullID: pr.ID})
+		})
+
+		t.Run("Web", func(t *testing.T) {
+			// Schedule automerge with disallowed squash style via web form
+			req := NewRequestWithValues(t, "POST",
+				fmt.Sprintf("/user2/repo1/pulls/%d/merge", pr.Index),
+				map[string]string{
+					"do":                        string(repo_model.MergeStyleSquash),
+					"merge_when_checks_succeed": "true",
+				})
+			resp := session.MakeRequest(t, req, http.StatusBadRequest)
+
+			// The web handler returns 400 with a JSON error body
+			respBody := resp.Body.String()
+			assert.Contains(t, respBody, "You cannot use this merge option for this pull request.")
+
+			// Verify no automerge was scheduled
+			unittest.AssertNotExistsBean(t, &pull_model.AutoMerge{PullID: pr.ID})
+		})
 	})
 }
