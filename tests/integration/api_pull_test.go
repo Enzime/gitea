@@ -20,6 +20,7 @@ import (
 	unit_model "code.gitea.io/gitea/models/unit"
 	"code.gitea.io/gitea/models/unittest"
 	user_model "code.gitea.io/gitea/models/user"
+	"code.gitea.io/gitea/modules/gitrepo"
 	"code.gitea.io/gitea/modules/setting"
 	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/util"
@@ -242,6 +243,18 @@ func TestAPIMergePull(t *testing.T) {
 			}}, nil))
 		}
 
+		updateRepoUnitPullRequestsConfig := func(t *testing.T, repo *repo_model.Repository, update func(cfg *repo_model.PullRequestsConfig)) {
+			prUnit, err := repo.GetUnit(t.Context(), unit_model.TypePullRequests)
+			require.NoError(t, err)
+
+			update(prUnit.PullRequestsConfig())
+			require.NoError(t, repo_service.UpdateRepositoryUnits(t.Context(), repo, []repo_model.RepoUnit{{
+				RepoID: repo.ID,
+				Type:   unit_model.TypePullRequests,
+				Config: prUnit.PullRequestsConfig(),
+			}}, nil))
+		}
+
 		t.Run("DeleteBranchAfterMergePassedByRepoSettings", func(t *testing.T) {
 			newBranch := "test-pull-3"
 			prDTO := createTestBranchPR(t, newBranch)
@@ -256,6 +269,30 @@ func TestAPIMergePull(t *testing.T) {
 			updateRepoUnitDefaultDeleteBranchAfterMerge(t, repo, false)
 			performMerge(t, prDTO.Index, map[string]any{"do": "merge", "delete_branch_after_merge": true})
 			checkBranchExists(t, newBranch, http.StatusNotFound)
+		})
+
+		t.Run("EmptyDoUsesRepoDefaultMergeStyle", func(t *testing.T) {
+			updateRepoUnitPullRequestsConfig(t, repo, func(cfg *repo_model.PullRequestsConfig) {
+				cfg.AllowMerge = true
+				cfg.AllowRebase = true
+				cfg.AllowRebaseMerge = false
+				cfg.AllowSquash = false
+				cfg.AllowFastForwardOnly = false
+				cfg.AllowManualMerge = false
+				cfg.DefaultMergeStyle = repo_model.MergeStyleRebase
+			})
+			newBranch := "test-pull-empty-do"
+			prDTO := createTestBranchPR(t, newBranch)
+			performMerge(t, prDTO.Index, map[string]any{})
+
+			// rebase produces a single-parent commit, merge produces two parents
+			pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: prDTO.ID})
+			gitRepo, err := gitrepo.OpenRepository(t.Context(), repo)
+			require.NoError(t, err)
+			defer gitRepo.Close()
+			commit, err := gitRepo.GetCommit(pr.MergedCommitID)
+			require.NoError(t, err)
+			assert.Equal(t, 1, commit.ParentCount())
 		})
 	})
 }
