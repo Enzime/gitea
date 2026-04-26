@@ -1007,7 +1007,12 @@ func MergePullRequest(ctx *context.APIContext) {
 	}
 
 	if len(form.Do) == 0 {
-		form.Do = string(repo_model.MergeStyleMerge)
+		prUnit, err := ctx.Repo.Repository.GetUnit(ctx, unit.TypePullRequests)
+		if err != nil {
+			form.Do = string(repo_model.MergeStyleMerge)
+		} else {
+			form.Do = string(prUnit.PullRequestsConfig().DefaultMergeStyle)
+		}
 	}
 
 	message := strings.TrimSpace(form.MergeTitleField)

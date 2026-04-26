@@ -523,9 +523,8 @@ func (f *InitializeLabelsForm) Validate(req *http.Request, errs binding.Errors) 
 // MergePullRequestForm form for merging Pull Request
 // swagger:model MergePullRequestOption
 type MergePullRequestForm struct {
-	// required: true
 	// enum: ["merge","rebase","rebase-merge","squash","fast-forward-only","manually-merged"]
-	Do                     string `json:"do" binding:"Required;In(merge,rebase,rebase-merge,squash,fast-forward-only,manually-merged)"`
+	Do                     string `json:"do" binding:"In(,merge,rebase,rebase-merge,squash,fast-forward-only,manually-merged)"`
 	MergeTitleField        string `json:"merge_title_field,omitempty"`
 	MergeMessageField      string `json:"merge_message_field,omitempty"`
 	MergeCommitID          string `json:"merge_commit_id,omitempty"` // only used for manually-merged
