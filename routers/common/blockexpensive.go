@@ -39,6 +39,21 @@ func isRoutePathExpensive(routePattern string) bool {
 		return false
 	}
 
+	// Allowed routes: tooling and content-embedding endpoints that should
+	// remain accessible to anonymous users even when the surrounding prefix
+	// is in the expensive list. Each entry serves one blob/feed per request,
+	// so per-request fan-out is bounded.
+	allowedPaths := []string{
+		"/{username}/{reponame}/archive/", // nix run / flake tarballs, CI fetches
+		"/{username}/{reponame}/raw/",     // single-file fetches by scripts
+		"/{username}/{reponame}/media/",   // LFS objects, README inline images
+	}
+	for _, path := range allowedPaths {
+		if strings.HasPrefix(routePattern, path) {
+			return false
+		}
+	}
+
 	expensivePaths := []string{
 		// code related
 		"/{username}/{reponame}/archive/",

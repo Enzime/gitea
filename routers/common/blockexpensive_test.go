@@ -16,7 +16,10 @@ func TestBlockExpensive(t *testing.T) {
 	}{
 		{false, "/user/xxx"},
 		{false, "/login/xxx"},
-		{true, "/{username}/{reponame}/archive/xxx"},
+		// allowed: tooling / content-embedding endpoints
+		{false, "/{username}/{reponame}/archive/xxx"},
+		{false, "/{username}/{reponame}/raw/xxx"},
+		{false, "/{username}/{reponame}/media/xxx"},
 		{true, "/{username}/{reponame}/graph"},
 		{true, "/{username}/{reponame}/src/xxx"},
 		{true, "/{username}/{reponame}/wiki/xxx"},
